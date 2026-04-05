@@ -54,7 +54,7 @@ fun LoginScreen(
             verticalArrangement = Arrangement.Center
         ) {
             Text(
-                text = "Sign In",
+                text = "Iniciar Sesión",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF333333)
@@ -62,10 +62,10 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(40.dp))
 
-            // Username/Email Field
+            // Campo Usuario/Email
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "User Name or E-mail",
+                    text = "Ingrese su E-mail",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF4A6572)
@@ -86,10 +86,10 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Password Field (contrasena en el backend)
+            // Campo Contraseña (contrasena en el backend)
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "Password",
+                    text = "Contraseña",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF4A6572)
@@ -121,7 +121,7 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(60.dp))
 
-            // Sign In Button
+            // Botón Iniciar Sesión
             Button(
                 onClick = { onLoginSuccess(email, contrasena) },
                 modifier = Modifier
@@ -133,12 +133,12 @@ fun LoginScreen(
                     contentColor = Color.Black
                 )
             ) {
-                Text("Sign In", fontWeight = FontWeight.Bold)
+                Text("Ingresar", fontWeight = FontWeight.Bold)
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Sign Up Button
+            // Botón Registrarse
             Button(
                 onClick = onNavigateToSignUp,
                 modifier = Modifier
@@ -150,7 +150,7 @@ fun LoginScreen(
                     contentColor = Color.White
                 )
             ) {
-                Text("Sign up", fontWeight = FontWeight.Bold)
+                Text("Registrarse", fontWeight = FontWeight.Bold)
             }
         }
     }
