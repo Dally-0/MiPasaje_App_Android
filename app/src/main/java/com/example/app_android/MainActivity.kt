@@ -6,8 +6,11 @@ import android.content.IntentFilter
 import android.media.MediaPlayer
 import android.nfc.NfcAdapter
 import android.nfc.Tag
+import android.nfc.tech.IsoDep
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -24,18 +27,19 @@ import com.example.app_android.ui.LoginScreen
 import com.example.app_android.ui.SignUpScreen
 import com.example.app_android.ui.NfcTransactionScreen
 import com.example.app_android.ui.theme.App_AndroidTheme
+import com.google.gson.Gson
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private var nfcAdapter: NfcAdapter? = null
     
-    // Estados para la transacción NFC
     private var isNfcActive by mutableStateOf(false)
     private var nfcStatusMessage by mutableStateOf("Esperando contacto...")
     private var isProcessingNfc by mutableStateOf(false)
     private var currentToken by mutableStateOf("")
     private var currentUserRole by mutableIntStateOf(2)
     private var currentSaldo by mutableStateOf("0.00")
+    private var currentTransactions by mutableStateOf<List<TransactionResponse>>(emptyList())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,7 +57,14 @@ class MainActivity : ComponentActivity() {
                             rolId = currentUserRole,
                             statusMessage = nfcStatusMessage,
                             isProcessing = isProcessingNfc,
-                            onCancel = { isNfcActive = false }
+                            onCancel = { 
+                                isNfcActive = false 
+                                // Al cerrar el modo NFC, refrescamos datos
+                                loggedInUser?.let { 
+                                    fetchSaldo(currentToken, it.id)
+                                    fetchTransactions(currentToken, it.id)
+                                }
+                            }
                         )
                     } else {
                         when (currentScreen) {
@@ -64,20 +75,20 @@ class MainActivity : ComponentActivity() {
                                             val response = RetrofitClient.instance.login(LoginRequest(email, password))
                                             if (response.isSuccessful && response.body() != null) {
                                                 val loginData = response.body()!!
-                                                if (loginData.user.role == 1) {
-                                                    Toast.makeText(this@MainActivity, "Acceso denegado: Solo Estudiantes o Choferes", Toast.LENGTH_LONG).show()
-                                                } else {
-                                                    loggedInUser = loginData.user
-                                                    currentToken = loginData.accessToken
-                                                    currentUserRole = loginData.user.role ?: 2
-                                                    registrarDispositivo(loginData.accessToken, loginData.user.id)
+                                                currentToken = loginData.accessToken
+                                                loggedInUser = loginData.user
+                                                
+                                                fetchProfileAndNavigate(loginData.accessToken, loginData.user.id) {
                                                     currentScreen = "home"
                                                 }
                                             } else {
-                                                Toast.makeText(this@MainActivity, "Credenciales incorrectas", Toast.LENGTH_SHORT).show()
+                                                val errorBody = response.errorBody()?.string() ?: ""
+                                                Log.e("API_ERROR", "Error login: $errorBody")
+                                                val errorMsg = if (response.code() == 401) "Correo o contraseña incorrectos" else "Error del servidor: ${response.code()}"
+                                                Toast.makeText(this@MainActivity, errorMsg, Toast.LENGTH_SHORT).show()
                                             }
                                         } catch (e: Exception) {
-                                            Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(this@MainActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 },
@@ -91,16 +102,28 @@ class MainActivity : ComponentActivity() {
                                             val response = RetrofitClient.instance.register(registerData)
                                             if (response.isSuccessful && response.body() != null) {
                                                 val loginData = response.body()!!
-                                                if (loginData.user.role == 1) {
-                                                    Toast.makeText(this@MainActivity, "Admin no puede usar la app móvil", Toast.LENGTH_LONG).show()
-                                                    currentScreen = "login"
-                                                } else {
-                                                    currentToken = loginData.accessToken
-                                                    currentUserRole = loginData.user.role ?: 2
-                                                    registrarDispositivo(loginData.accessToken, loginData.user.id)
-                                                    loggedInUser = loginData.user
-                                                    currentScreen = "home"
+                                                currentToken = loginData.accessToken
+                                                loggedInUser = loginData.user
+                                                
+                                                Toast.makeText(this@MainActivity, "¡Registro Exitoso!", Toast.LENGTH_SHORT).show()
+
+                                                val roleObj = loginData.user.role
+                                                val roleId = when {
+                                                    roleObj is Number -> roleObj.toInt()
+                                                    roleObj.toString().contains("3") -> 3
+                                                    else -> 2
                                                 }
+                                                
+                                                currentUserRole = roleId
+                                                realizarRegistrosAutomaticos(loginData.accessToken, loginData.user.id, roleId)
+                                                fetchSaldo(loginData.accessToken, loginData.user.id)
+                                                fetchTransactions(loginData.accessToken, loginData.user.id)
+                                                
+                                                currentScreen = "home"
+                                            } else {
+                                                val errorBody = response.errorBody()?.string() ?: ""
+                                                Log.e("API_ERROR", "Error registro: $errorBody")
+                                                Toast.makeText(this@MainActivity, "Error en registro: $errorBody", Toast.LENGTH_LONG).show()
                                             }
                                         } catch (e: Exception) {
                                             Toast.makeText(this@MainActivity, "Error de red", Toast.LENGTH_SHORT).show()
@@ -118,9 +141,10 @@ class MainActivity : ComponentActivity() {
                                         email = user.email,
                                         rolId = currentUserRole,
                                         saldo = currentSaldo,
+                                        transactions = currentTransactions,
                                         onActionClick = { 
                                             if (nfcAdapter == null) {
-                                                Toast.makeText(this@MainActivity, "NFC no disponible en este dispositivo", Toast.LENGTH_LONG).show()
+                                                Toast.makeText(this@MainActivity, "NFC no disponible", Toast.LENGTH_LONG).show()
                                             } else if (!nfcAdapter!!.isEnabled) {
                                                 Toast.makeText(this@MainActivity, "Por favor active el NFC", Toast.LENGTH_LONG).show()
                                             } else {
@@ -129,8 +153,8 @@ class MainActivity : ComponentActivity() {
                                             }
                                         },
                                         onRefreshClick = {
-                                            // Lógica para actualizar saldo (puedes llamar a un endpoint de perfil)
-                                            Toast.makeText(this@MainActivity, "Saldo actualizado", Toast.LENGTH_SHORT).show()
+                                            fetchSaldo(currentToken, user.id)
+                                            fetchTransactions(currentToken, user.id)
                                         },
                                         modifier = Modifier.padding(innerPadding)
                                     )
@@ -139,6 +163,79 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private fun realizarRegistrosAutomaticos(token: String, userId: String, roleId: Int) {
+        lifecycleScope.launch {
+            try {
+                val androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+                
+                val requestDispositivo = DispositivoMovilRequest(
+                    idDispositivo = androidId,
+                    idUsuario = userId,
+                    modeloApp = Build.MODEL.take(20),
+                    marcaModelo = "${Build.MANUFACTURER} ${Build.MODEL}",
+                    uidNfc = androidId
+                )
+                RetrofitClient.instance.registrarDispositivo("Bearer $token", requestDispositivo)
+
+                if (roleId == 2) {
+                    val requestTarjeta = TarjetaNfcRequest(uidNfc = androidId, idUsuario = userId)
+                    RetrofitClient.instance.vincularTarjetaNfc("Bearer $token", requestTarjeta)
+                }
+            } catch (e: Exception) { }
+        }
+    }
+
+    private fun fetchProfileAndNavigate(token: String, userId: String, onSuccess: () -> Unit) {
+        lifecycleScope.launch {
+            try {
+                val response = RetrofitClient.instance.getUserProfile("Bearer $token")
+                if (response.isSuccessful && response.body() != null) {
+                    val roleObj = response.body()!!.role
+                    val roleId = when {
+                        roleObj is Number -> roleObj.toInt()
+                        roleObj.toString().contains("3") -> 3
+                        roleObj == "Chofer" -> 3
+                        else -> 2
+                    }
+                    
+                    if (roleId == 1) {
+                        Toast.makeText(this@MainActivity, "Acceso denegado a Administradores", Toast.LENGTH_LONG).show()
+                    } else {
+                        currentUserRole = roleId
+                        realizarRegistrosAutomaticos(token, userId, roleId)
+                        fetchSaldo(token, userId)
+                        fetchTransactions(token, userId)
+                        onSuccess()
+                    }
+                }
+            } catch (e: Exception) { }
+        }
+    }
+
+    private fun fetchSaldo(token: String, userId: String) {
+        lifecycleScope.launch {
+            try {
+                val response = RetrofitClient.instance.getCuenta("Bearer $token", userId)
+                if (response.isSuccessful && response.body() != null) {
+                    currentSaldo = response.body()!!.data.saldo
+                }
+            } catch (e: Exception) { }
+        }
+    }
+
+    private fun fetchTransactions(token: String, userId: String) {
+        lifecycleScope.launch {
+            try {
+                val response = RetrofitClient.instance.getTransacciones("Bearer $token", userId)
+                if (response.isSuccessful && response.body() != null) {
+                    currentTransactions = response.body()!!
+                }
+            } catch (e: Exception) {
+                Log.e("API_ERROR", "Error fetching transactions: ${e.message}")
             }
         }
     }
@@ -178,35 +275,47 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun processNfcTag(tag: Tag) {
-        val tagId = tag.id.joinToString("") { "%02x".format(it) }
         isProcessingNfc = true
-        nfcStatusMessage = "Procesando pago..."
+        nfcStatusMessage = "Leyendo..."
         
         lifecycleScope.launch {
             try {
-                // El ID de la tarjeta física o del celular emulado se envía como uidNfc
-                val response = RetrofitClient.instance.procesarPago(
-                    "Bearer $currentToken",
-                    PagoNfcRequest(uidNfc = tagId)
-                )
+                val isoDep = IsoDep.get(tag)
+                var finalUid = tag.id.joinToString("") { "%02x".format(it) }
+
+                if (isoDep != null) {
+                    try {
+                        isoDep.connect()
+                        val selectCommand = byteArrayOf(0x00.toByte(), 0xA4.toByte(), 0x04.toByte(), 0x00.toByte(), 0x07.toByte(), 
+                            0xF0.toByte(), 0x01.toByte(), 0x02.toByte(), 0x03.toByte(), 0x04.toByte(), 0x05.toByte(), 0x06.toByte())
+                        val res = isoDep.transceive(selectCommand)
+                        if (res.size >= 2 && res[res.size - 2] == 0x90.toByte()) {
+                            finalUid = String(res.copyOfRange(0, res.size - 2))
+                        }
+                        isoDep.close()
+                    } catch (e: Exception) { }
+                }
+
+                val response = RetrofitClient.instance.procesarPago("Bearer $currentToken", PagoNfcRequest(uidNfc = finalUid))
                 
                 if (response.isSuccessful) {
                     playSound(true)
                     val data = response.body()
-                    currentSaldo = data?.saldo_restante?.toString() ?: currentSaldo
-                    nfcStatusMessage = "¡Pago exitoso!\nSaldo actualizado."
+                    currentSaldo = "%.2f".format(data?.saldoRestante ?: 0.0)
+                    nfcStatusMessage = "¡Cobro exitoso!\nEstudiante: ${data?.mensaje}"
                 } else {
                     playSound(false)
-                    val errorBody = response.errorBody()?.string()
-                    nfcStatusMessage = if (errorBody?.contains("saldo") == true) {
-                        "Error: Saldo insuficiente"
-                    } else {
-                        "Error en la transacción"
+                    val errorBody = response.errorBody()?.string() ?: ""
+                    try {
+                        val errorData = Gson().fromJson(errorBody, PagoNfcResponse::class.java)
+                        nfcStatusMessage = "Error: ${errorData.mensaje}"
+                    } catch (e: Exception) {
+                        nfcStatusMessage = "Error ${response.code()}"
                     }
                 }
             } catch (e: Exception) {
                 playSound(false)
-                nfcStatusMessage = "Error de conexión"
+                nfcStatusMessage = "Error de red"
             } finally {
                 isProcessingNfc = false
             }
@@ -220,21 +329,6 @@ class MainActivity : ComponentActivity() {
             val mediaPlayer = MediaPlayer.create(this, resId)
             mediaPlayer.start()
             mediaPlayer.setOnCompletionListener { it.release() }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun registrarDispositivo(token: String, userId: String) {
-        lifecycleScope.launch {
-            try {
-                val request = DispositivoMovilRequest(
-                    idUsuario = userId,
-                    modeloApp = Build.MODEL.take(20),
-                    marcaModelo = "${Build.MANUFACTURER} ${Build.MODEL}"
-                )
-                RetrofitClient.instance.registrarDispositivo("Bearer $token", request)
-            } catch (e: Exception) { /* Silently fail device reg */ }
-        }
+        } catch (e: Exception) { }
     }
 }

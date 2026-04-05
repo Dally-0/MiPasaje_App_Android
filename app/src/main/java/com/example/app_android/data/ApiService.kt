@@ -5,10 +5,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import retrofit2.http.Body
-import retrofit2.http.POST
-import retrofit2.http.Header
-import retrofit2.http.Headers
+import retrofit2.http.*
 
 interface ApiService {
     @Headers("Accept: application/json")
@@ -19,11 +16,19 @@ interface ApiService {
     @POST("register")
     suspend fun register(@Body request: RegisterRequest): Response<LoginResponse>
 
-    @POST("dispositivo-movil")
+    @Headers("Accept: application/json")
+    @POST("dispositivos")
     suspend fun registrarDispositivo(
         @Header("Authorization") token: String,
         @Body request: DispositivoMovilRequest
     ): Response<DispositivoMovilResponse>
+
+    @Headers("Accept: application/json")
+    @POST("tarjetas-nfc")
+    suspend fun vincularTarjetaNfc(
+        @Header("Authorization") token: String,
+        @Body request: TarjetaNfcRequest
+    ): Response<Any>
 
     @Headers("Accept: application/json")
     @POST("cobro")
@@ -31,6 +36,26 @@ interface ApiService {
         @Header("Authorization") token: String,
         @Body request: PagoNfcRequest
     ): Response<PagoNfcResponse>
+
+    @Headers("Accept: application/json")
+    @GET("usuarios/{id}/cuenta")
+    suspend fun getCuenta(
+        @Header("Authorization") token: String,
+        @Path("id") userId: String
+    ): Response<CuentaWrapperResponse>
+
+    @Headers("Accept: application/json")
+    @GET("user")
+    suspend fun getUserProfile(
+        @Header("Authorization") token: String
+    ): Response<UserResponse>
+
+    @Headers("Accept: application/json")
+    @GET("usuarios/{id}/transacciones")
+    suspend fun getTransacciones(
+        @Header("Authorization") token: String,
+        @Path("id") userId: String
+    ): Response<List<TransactionResponse>>
 }
 
 object RetrofitClient {

@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">App_Android</string>
+    <string name="hce_service_name">Terminal Estudiante</string>
 </resources>

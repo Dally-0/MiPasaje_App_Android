@@ -2,6 +2,8 @@ package com.example.app_android.ui
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
@@ -12,27 +14,28 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.app_android.data.TransactionResponse
 import kotlin.system.exitProcess
 
 @Composable
 fun HomeScreen(
-    userName: String = "NombreUsuario",
+    userName: String = "Usuario",
     fullNames: String = "Nombres y apellidos",
     email: String = "Correo electronico",
-    rolId: Int = 2, // 2: Estudiante, 3: Chofer (según el Seeder)
+    rolId: Int = 2,
     saldo: String = "0.00",
+    transactions: List<TransactionResponse> = emptyList(),
     onActionClick: () -> Unit = {},
     onRefreshClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    // Según tu seeder: 1: Admin, 2: Estudiante, 3: Chofer
     val isChofer = rolId == 3
 
     Box(modifier = modifier.fillMaxSize()) {
-        // Fila de botones en la esquina superior derecha
         Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -41,14 +44,14 @@ fun HomeScreen(
             IconButton(onClick = onRefreshClick) {
                 Icon(
                     imageVector = Icons.Default.Refresh,
-                    contentDescription = "Actualizar saldo",
+                    contentDescription = "Actualizar",
                     tint = Color(0xFF4A6572)
                 )
             }
             IconButton(onClick = { exitProcess(0) }) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ExitToApp,
-                    contentDescription = "Salir de la aplicación",
+                    contentDescription = "Salir",
                     tint = Color(0xFF4A6572)
                 )
             }
@@ -57,43 +60,28 @@ fun HomeScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 40.dp),
+                .padding(horizontal = 30.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(modifier = Modifier.height(60.dp))
 
             Text(
                 text = "Hola $userName",
-                fontSize = 20.sp,
+                fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF4A6572)
             )
 
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(30.dp))
 
-            // User Info Row 1
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(text = "Cuenta:", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4A6572))
-                Text(text = fullNames, fontSize = 14.sp, color = Color(0xFF4A6572))
-            }
+            // User Info
+            InfoRow(label = "Cuenta:", value = fullNames)
+            Spacer(modifier = Modifier.height(12.dp))
+            InfoRow(label = "Correo:", value = email)
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(60.dp))
 
-            // User Info Row 2
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(text = "Correo:", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4A6572))
-                Text(text = email, fontSize = 14.sp, color = Color(0xFF4A6572))
-            }
-
-            Spacer(modifier = Modifier.height(80.dp))
-
-            // Balance dinámico según el rol
+            // Balance
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -101,44 +89,60 @@ fun HomeScreen(
             ) {
                 Text(
                     text = if (isChofer) "Ganancias hoy:" else "Saldo disponible:",
-                    fontSize = 14.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF4A6572)
                 )
-                Text(text = "$saldo BS", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                Text(text = "$saldo BS", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.Black)
             }
 
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(30.dp))
 
             // Transactions Box
+            Text(
+                text = if (isChofer) "Últimos cobros:" else "Lista de transacciones:",
+                modifier = Modifier.fillMaxWidth(),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF4A6572)
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, Color.Black)
-                    .padding(16.dp)
+                    .weight(1f) // Esto permite que la caja crezca y el botón se mantenga abajo
+                    .border(1.dp, Color.LightGray, RoundedCornerShape(8.dp))
+                    .padding(12.dp)
             ) {
-                Column {
-                    Text(
-                        text = if (isChofer) "Últimos cobros:" else "Lista de transacciones:",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF4A6572)
-                    )
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    HorizontalDivider(thickness = 1.dp, color = Color.Gray)
-                    
-                    TransactionItem(isChofer)
-                    
-                    HorizontalDivider(thickness = 1.dp, color = Color.Gray)
-                    
-                    TransactionItem(isChofer)
+                if (transactions.isEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "¡Realiza una transacción,\naprovecha la App!",
+                            textAlign = TextAlign.Center,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.Gray
+                        )
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(transactions) { transaction ->
+                            TransactionItem(transaction, isChofer)
+                            HorizontalDivider(thickness = 0.5.dp, color = Color.LightGray)
+                        }
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // Botón de acción dinámico
+            // Action Button
             Button(
                 onClick = onActionClick,
                 modifier = Modifier
@@ -146,8 +150,7 @@ fun HomeScreen(
                     .height(55.dp),
                 shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isChofer) Color(0xFF2E7D32) else Color(0xFF424242),
-                    contentColor = Color.White
+                    containerColor = if (isChofer) Color(0xFF2E7D32) else Color(0xFF424242)
                 )
             ) {
                 Text(
@@ -157,41 +160,52 @@ fun HomeScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(30.dp))
         }
     }
 }
 
 @Composable
-fun TransactionItem(isChofer: Boolean = false) {
+fun InfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(text = label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4A6572))
+        Text(text = value, fontSize = 14.sp, color = Color.DarkGray)
+    }
+}
+
+@Composable
+fun TransactionItem(transaction: TransactionResponse, isChofer: Boolean) {
     Column(modifier = Modifier.padding(vertical = 8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            val label = if (transaction.tipo == "Pago_Pasaje") {
+                if (isChofer) "Cobro Pasaje" else "Pago Pasaje"
+            } else {
+                "Recarga Saldo"
+            }
+            Text(text = label, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             Text(
-                text = if (isChofer) "Cobro realizado:" else "Pago realizado:",
+                text = "${if (isChofer || transaction.tipo == "Recarga_Saldo") "+" else "-"}${transaction.monto} BS", 
                 fontSize = 14.sp, 
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                color = if (isChofer || transaction.tipo == "Recarga_Saldo") Color(0xFF2E7D32) else Color.Red
             )
-            Text(text = "1.50 BS", fontSize = 14.sp, fontWeight = FontWeight.Bold)
         }
         Text(
-            text = "05 - 10 - 2024 - 08:30 AM",
+            text = transaction.fecha,
             fontSize = 12.sp,
             color = Color.Gray
         )
     }
 }
 
-@Preview(showBackground = true, showSystemUi = true)
+@Preview(showBackground = true)
 @Composable
-fun HomeScreenPreviewEstudiante() {
-    HomeScreen(rolId = 2)
-}
-
-@Preview(showBackground = true, showSystemUi = true)
-@Composable
-fun HomeScreenPreviewChofer() {
-    HomeScreen(rolId = 3)
+fun HomeScreenPreviewEmpty() {
+    HomeScreen(transactions = emptyList())
 }

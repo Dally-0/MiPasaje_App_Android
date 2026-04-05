@@ -16,6 +16,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.App_Android"
         android:usesCleartextTraffic="true">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -23,17 +24,31 @@
             android:theme="@style/Theme.App_Android">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Intent filter for NFC -->
             <intent-filter>
                 <action android:name="android.nfc.action.NDEF_DISCOVERED" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+
+        <!-- Servicio de Emulación de Tarjeta (HCE) -->
+        <service
+            android:name=".NfcCardService"
+            android:exported="true"
+            android:label="@string/hce_service_name"
+            android:permission="android.permission.BIND_NFC_SERVICE">
+            <intent-filter>
+                <action android:name="android.nfc.cardemulation.action.HOST_APDU_SERVICE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.nfc.cardemulation.host_apdu_service"
+                android:resource="@xml/hce_aid_filter" />
+        </service>
+
     </application>
 
 </manifest>
