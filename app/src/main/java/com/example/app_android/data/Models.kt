@@ -10,6 +10,16 @@ data class UserResponse(
     val role: Any? = null
 )
 
+// Roles
+data class RoleResponse(
+    val id: Int,
+    val nombre: String
+)
+
+data class RolesWrapperResponse(
+    val data: List<RoleResponse>
+)
+
 // Auth
 data class LoginRequest(val email: String, val contrasena: String)
 data class LoginResponse(
@@ -51,6 +61,8 @@ data class PagoNfcRequest(@SerializedName("uid_nfc") val uidNfc: String, val mon
 data class PagoNfcResponse(
     val status: String,
     val mensaje: String,
+    val estudiante: String? = null,
+    @SerializedName("monto_cobrado") val montoCobrado: Double? = null,
     @SerializedName("saldo_restante") val saldoRestante: Double? = null
 )
 
@@ -59,11 +71,13 @@ data class CuentaResponse(val saldo: String)
 data class CuentaWrapperResponse(val status: String, val data: CuentaResponse)
 
 // Transacciones
+data class TransactionWrapperResponse(val status: String, val data: List<TransactionResponse>)
+
 data class TransactionResponse(
-    @SerializedName("Id_Transaccion") val id: Int,
-    @SerializedName("Monto") val monto: String,
-    @SerializedName("Tipo") val tipo: String,
-    @SerializedName("Fecha") val fecha: String,
-    @SerializedName("Id_Cuenta_Origen") val idCuentaOrigen: Int?,
-    @SerializedName("Id_Cuenta_Destino") val idCuentaDestino: Int?
+    val id: Int,
+    val monto: String? = "0.00",
+    val tipo: String? = "Pago_Pasaje", // The backend resource is missing this field, so we default it
+    val fecha: String? = "Sin fecha",
+    val idCuentaOrigen: Int? = null,
+    val idCuentaDestino: Int? = null
 )

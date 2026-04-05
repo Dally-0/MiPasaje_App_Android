@@ -17,6 +17,10 @@ interface ApiService {
     suspend fun register(@Body request: RegisterRequest): Response<LoginResponse>
 
     @Headers("Accept: application/json")
+    @GET("roles")
+    suspend fun getRoles(): Response<RolesWrapperResponse>
+
+    @Headers("Accept: application/json")
     @POST("dispositivos")
     suspend fun registrarDispositivo(
         @Header("Authorization") token: String,
@@ -55,7 +59,7 @@ interface ApiService {
     suspend fun getTransacciones(
         @Header("Authorization") token: String,
         @Path("id") userId: String
-    ): Response<List<TransactionResponse>>
+    ): Response<TransactionWrapperResponse>
 }
 
 object RetrofitClient {

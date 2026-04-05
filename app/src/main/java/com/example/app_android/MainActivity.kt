@@ -40,6 +40,11 @@ class MainActivity : ComponentActivity() {
     private var currentUserRole by mutableIntStateOf(2)
     private var currentSaldo by mutableStateOf("0.00")
     private var currentTransactions by mutableStateOf<List<TransactionResponse>>(emptyList())
+    private var loggedInUser by mutableStateOf<UserResponse?>(null)
+    
+    // Variables de Cooldown NFC
+    private var lastProcessedUid: String? = null
+    private var lastProcessedTime: Long = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,7 +54,17 @@ class MainActivity : ComponentActivity() {
         setContent {
             App_AndroidTheme {
                 var currentScreen by remember { mutableStateOf("login") }
-                var loggedInUser by remember { mutableStateOf<UserResponse?>(null) }
+
+                // Monitorear el puente NFC para el estudiante
+                LaunchedEffect(NfcPaymentBridge.status) {
+                    when(NfcPaymentBridge.status) {
+                        "exitoso" -> {
+                            val msg = NfcPaymentBridge.successMessage
+                            nfcStatusMessage = if (msg.isNotEmpty()) "¡Pago Realizado!\n$msg" else "¡Pago Realizado!"
+                        }
+                        "error" -> nfcStatusMessage = "Error: ${NfcPaymentBridge.errorMessage}"
+                    }
+                }
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     if (isNfcActive) {
@@ -59,7 +74,8 @@ class MainActivity : ComponentActivity() {
                             isProcessing = isProcessingNfc,
                             onCancel = { 
                                 isNfcActive = false 
-                                // Al cerrar el modo NFC, refrescamos datos
+                                nfcStatusMessage = "Esperando contacto..."
+                                NfcPaymentBridge.reset()
                                 loggedInUser?.let { 
                                     fetchSaldo(currentToken, it.id)
                                     fetchTransactions(currentToken, it.id)
@@ -107,12 +123,7 @@ class MainActivity : ComponentActivity() {
                                                 
                                                 Toast.makeText(this@MainActivity, "¡Registro Exitoso!", Toast.LENGTH_SHORT).show()
 
-                                                val roleObj = loginData.user.role
-                                                val roleId = when {
-                                                    roleObj is Number -> roleObj.toInt()
-                                                    roleObj.toString().contains("3") -> 3
-                                                    else -> 2
-                                                }
+                                                val roleId = extractRoleId(loginData.user.role)
                                                 
                                                 currentUserRole = roleId
                                                 realizarRegistrosAutomaticos(loginData.accessToken, loginData.user.id, roleId)
@@ -150,6 +161,7 @@ class MainActivity : ComponentActivity() {
                                             } else {
                                                 isNfcActive = true
                                                 nfcStatusMessage = "Esperando contacto..."
+                                                NfcPaymentBridge.reset()
                                             }
                                         },
                                         onRefreshClick = {
@@ -167,6 +179,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun extractRoleId(roleObj: Any?): Int {
+        if (roleObj == null) return 2
+        if (roleObj is Number) return roleObj.toInt()
+        val roleStr = roleObj.toString()
+        return when {
+            roleStr.contains("Chofer", ignoreCase = true) -> 5
+            roleStr.contains("Universidad", ignoreCase = true) -> 4
+            roleStr.contains("Secundaria", ignoreCase = true) -> 3
+            roleStr.contains("Primaria", ignoreCase = true) -> 2
+            roleStr.contains("Administrador", ignoreCase = true) -> 1
+            else -> roleStr.toIntOrNull() ?: 2
+        }
+    }
+
     private fun realizarRegistrosAutomaticos(token: String, userId: String, roleId: Int) {
         lifecycleScope.launch {
             try {
@@ -181,7 +207,8 @@ class MainActivity : ComponentActivity() {
                 )
                 RetrofitClient.instance.registrarDispositivo("Bearer $token", requestDispositivo)
 
-                if (roleId == 2) {
+                // Si es estudiante (IDs 2, 3, 4), vinculamos la tarjeta NFC
+                if (roleId in 2..4) {
                     val requestTarjeta = TarjetaNfcRequest(uidNfc = androidId, idUsuario = userId)
                     RetrofitClient.instance.vincularTarjetaNfc("Bearer $token", requestTarjeta)
                 }
@@ -194,19 +221,12 @@ class MainActivity : ComponentActivity() {
             try {
                 val response = RetrofitClient.instance.getUserProfile("Bearer $token")
                 if (response.isSuccessful && response.body() != null) {
-                    val roleObj = response.body()!!.role
-                    val roleId = when {
-                        roleObj is Number -> roleObj.toInt()
-                        roleObj.toString().contains("3") -> 3
-                        roleObj == "Chofer" -> 3
-                        else -> 2
-                    }
+                    val roleId = extractRoleId(response.body()!!.role)
                     
                     if (roleId == 1) {
-                        Toast.makeText(this@MainActivity, "Acceso denegado a Administradores", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, "Acceso denegado a Administradores", Toast.LENGTH_SHORT).show()
                     } else {
                         currentUserRole = roleId
-                        realizarRegistrosAutomaticos(token, userId, roleId)
                         fetchSaldo(token, userId)
                         fetchTransactions(token, userId)
                         onSuccess()
@@ -232,38 +252,15 @@ class MainActivity : ComponentActivity() {
             try {
                 val response = RetrofitClient.instance.getTransacciones("Bearer $token", userId)
                 if (response.isSuccessful && response.body() != null) {
-                    currentTransactions = response.body()!!
+                    currentTransactions = response.body()!!.data
                 }
-            } catch (e: Exception) {
-                Log.e("API_ERROR", "Error fetching transactions: ${e.message}")
-            }
+            } catch (e: Exception) { }
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        enableNfcForegroundDispatch()
-    }
-
-    override fun onPause() {
-        super.onPause()
-        disableNfcForegroundDispatch()
-    }
-
-    private fun enableNfcForegroundDispatch() {
-        val intent = Intent(this, javaClass).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_MUTABLE)
-        val filters = arrayOf(IntentFilter(NfcAdapter.ACTION_TAG_DISCOVERED))
-        nfcAdapter?.enableForegroundDispatch(this, pendingIntent, filters, null)
-    }
-
-    private fun disableNfcForegroundDispatch() {
-        nfcAdapter?.disableForegroundDispatch(this)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (isNfcActive && currentUserRole == 3 && NfcAdapter.ACTION_TAG_DISCOVERED == intent.action) {
+        if (isNfcActive && NfcAdapter.ACTION_TAG_DISCOVERED == intent.action) {
             val tag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 intent.getParcelableExtra(NfcAdapter.EXTRA_TAG, Tag::class.java)
             } else {
@@ -275,46 +272,93 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun processNfcTag(tag: Tag) {
+        if (isProcessingNfc) return
         isProcessingNfc = true
-        nfcStatusMessage = "Leyendo..."
-        
+        nfcStatusMessage = "Procesando..."
+
         lifecycleScope.launch {
             try {
-                val isoDep = IsoDep.get(tag)
                 var finalUid = tag.id.joinToString("") { "%02x".format(it) }
+                var tagResponded = false
+                val isoDep = IsoDep.get(tag)
 
                 if (isoDep != null) {
                     try {
                         isoDep.connect()
+                        isoDep.timeout = 5000 // 5 segundos para que la conexión NFC no se pierda durante la llamada API
                         val selectCommand = byteArrayOf(0x00.toByte(), 0xA4.toByte(), 0x04.toByte(), 0x00.toByte(), 0x07.toByte(), 
                             0xF0.toByte(), 0x01.toByte(), 0x02.toByte(), 0x03.toByte(), 0x04.toByte(), 0x05.toByte(), 0x06.toByte())
                         val res = isoDep.transceive(selectCommand)
                         if (res.size >= 2 && res[res.size - 2] == 0x90.toByte()) {
                             finalUid = String(res.copyOfRange(0, res.size - 2))
+                            tagResponded = true
                         }
-                        isoDep.close()
                     } catch (e: Exception) { }
                 }
+
+                // Opción 2: Evitar rebotes en menos de 10 segundos
+                val currentTime = System.currentTimeMillis()
+                if (finalUid == lastProcessedUid && (currentTime - lastProcessedTime) < 10000) {
+                    nfcStatusMessage = "Cobro ya realizado en este dispositivo recientemente."
+                    if (isoDep != null && isoDep.isConnected) isoDep.close()
+                    isProcessingNfc = false
+                    return@launch
+                }
+                
+                lastProcessedUid = finalUid
+                lastProcessedTime = currentTime
 
                 val response = RetrofitClient.instance.procesarPago("Bearer $currentToken", PagoNfcRequest(uidNfc = finalUid))
                 
                 if (response.isSuccessful) {
-                    playSound(true)
+                    playSound()
                     val data = response.body()
-                    currentSaldo = "%.2f".format(data?.saldoRestante ?: 0.0)
-                    nfcStatusMessage = "¡Cobro exitoso!\nEstudiante: ${data?.mensaje}"
+                    val nombreEstudiante = data?.estudiante ?: "Desconocido"
+                    val montoCobrado = "%.2f".format(data?.montoCobrado ?: 0.0)
+                    
+                    // Solo mostramos información relevante para el chofer
+                    nfcStatusMessage = "¡Cobro exitoso!\nEstudiante: $nombreEstudiante\nCobro: Bs. $montoCobrado"
+                    
+                    // Como el chofer es quien cobra, actualizamos su saldo desde el servidor para reflejar el incremento real:
+                    loggedInUser?.let { fetchSaldo(currentToken, it.id); fetchTransactions(currentToken, it.id) }
+
+                    // SI ES UN CELULAR, LE ENVIAMOS EL COMANDO DE ÉXITO (0x00, 0x55) MAS EL RESUMEN DEL COBRO AL ESTUDIANTE
+                    if (tagResponded && isoDep != null && isoDep.isConnected) {
+                        try {
+                            val msgEstudiante = "Monto: Bs. $montoCobrado | Te quedan: Bs. ${"%.2f".format(data?.saldoRestante ?: 0.0)}"
+                            val exitoArray = byteArrayOf(0x00.toByte(), 0x55.toByte()) + msgEstudiante.toByteArray()
+                            isoDep.transceive(exitoArray)
+                        } catch (e: Exception) {}
+                    }
+                    
+                    // Opción 1: Redirigir al menú principal automáticamente después de 2.5 seg
+                    kotlinx.coroutines.delay(2500)
+                    isNfcActive = false
+                    nfcStatusMessage = "Esperando contacto..."
                 } else {
-                    playSound(false)
+                    playSound()
                     val errorBody = response.errorBody()?.string() ?: ""
-                    try {
+                    val errorMsg: String = try {
                         val errorData = Gson().fromJson(errorBody, PagoNfcResponse::class.java)
-                        nfcStatusMessage = "Error: ${errorData.mensaje}"
+                        errorData.mensaje
                     } catch (e: Exception) {
-                        nfcStatusMessage = "Error ${response.code()}"
+                        "Error ${response.code()}"
+                    }
+                    nfcStatusMessage = "Error: $errorMsg"
+                    
+                    // SI ES UN CELULAR, LE ENVIAMOS EL COMANDO DE ERROR (0x00, 0xEE) + MENSAJE
+                    if (tagResponded && isoDep != null && isoDep.isConnected) {
+                        try {
+                            val errorBytes = byteArrayOf(0x00.toByte(), 0xEE.toByte()) + errorMsg.toByteArray()
+                            isoDep.transceive(errorBytes)
+                        } catch (e: Exception) {}
                     }
                 }
+                
+                if (isoDep != null && isoDep.isConnected) isoDep.close()
+
             } catch (e: Exception) {
-                playSound(false)
+                playSound()
                 nfcStatusMessage = "Error de red"
             } finally {
                 isProcessingNfc = false
@@ -322,13 +366,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun playSound(success: Boolean) {
+    private fun playSound() {
         try {
-            val resId = if (success) android.provider.Settings.System.DEFAULT_NOTIFICATION_URI 
-                        else android.provider.Settings.System.DEFAULT_ALARM_ALERT_URI
-            val mediaPlayer = MediaPlayer.create(this, resId)
-            mediaPlayer.start()
-            mediaPlayer.setOnCompletionListener { it.release() }
+            val resId = Settings.System.DEFAULT_NOTIFICATION_URI
+            val mp = MediaPlayer.create(this, resId)
+            mp.start()
+            mp.setOnCompletionListener { it.release() }
         } catch (e: Exception) { }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val intent = Intent(this, javaClass).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_MUTABLE)
+        val filters = arrayOf(IntentFilter(NfcAdapter.ACTION_TAG_DISCOVERED))
+        nfcAdapter?.enableForegroundDispatch(this, pendingIntent, filters, null)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        nfcAdapter?.disableForegroundDispatch(this)
     }
 }

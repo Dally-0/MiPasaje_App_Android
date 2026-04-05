@@ -33,7 +33,8 @@ fun HomeScreen(
     onRefreshClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val isChofer = rolId == 3
+    // ID 5 es Chofer según el nuevo Seeder
+    val isChofer = rolId == 5
 
     Box(modifier = modifier.fillMaxSize()) {
         Row(
@@ -183,21 +184,28 @@ fun TransactionItem(transaction: TransactionResponse, isChofer: Boolean) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            val label = if (transaction.tipo == "Pago_Pasaje") {
-                if (isChofer) "Cobro Pasaje" else "Pago Pasaje"
-            } else {
+            val isRecarga = transaction.tipo == "Recarga_Saldo"
+            
+            val label = if (isRecarga) {
                 "Recarga Saldo"
+            } else {
+                if (isChofer) "Cobro Pasaje" else "Pago Pasaje"
             }
+            
             Text(text = label, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            
+            val prefix = if (isChofer || isRecarga) "+" else "-"
+            val amountColor = if (isChofer || isRecarga) Color(0xFF2E7D32) else Color.Red
+            
             Text(
-                text = "${if (isChofer || transaction.tipo == "Recarga_Saldo") "+" else "-"}${transaction.monto} BS", 
+                text = "$prefix${transaction.monto ?: "0.00"} BS", 
                 fontSize = 14.sp, 
                 fontWeight = FontWeight.Bold,
-                color = if (isChofer || transaction.tipo == "Recarga_Saldo") Color(0xFF2E7D32) else Color.Red
+                color = amountColor
             )
         }
         Text(
-            text = transaction.fecha,
+            text = transaction.fecha ?: "Sin fecha",
             fontSize = 12.sp,
             color = Color.Gray
         )

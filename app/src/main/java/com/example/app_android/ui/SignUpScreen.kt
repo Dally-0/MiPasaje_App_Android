@@ -1,6 +1,8 @@
 package com.example.app_android.ui
 
 import android.app.DatePickerDialog
+import android.util.Log
+import android.widget.Toast
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -22,9 +24,13 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.app_android.data.RegisterRequest
+import com.example.app_android.data.RetrofitClient
+import com.example.app_android.data.RoleResponse
+import kotlinx.coroutines.launch
 import java.util.*
 import kotlin.system.exitProcess
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SignUpScreen(
     onSignUpRequest: (RegisterRequest) -> Unit,
@@ -39,11 +45,35 @@ fun SignUpScreen(
     var contrasena by remember { mutableStateOf("") }
     var confirmContrasena by remember { mutableStateOf("") }
     
-    // Cambiado para que por defecto sea Estudiante (2)
-    var rolId by remember { mutableIntStateOf(2) } 
+    // Roles dinámicos
+    var roles by remember { mutableStateOf<List<RoleResponse>>(emptyList()) }
+    var selectedRole by remember { mutableStateOf<RoleResponse?>(null) }
+    var expanded by remember { mutableStateOf(false) }
+    var isLoadingRoles by remember { mutableStateOf(true) }
 
     val scrollState = rememberScrollState()
     val context = LocalContext.current
+
+    // Cargar roles al inicio
+    LaunchedEffect(Unit) {
+        try {
+            val response = RetrofitClient.instance.getRoles()
+            if (response.isSuccessful && response.body() != null) {
+                roles = response.body()!!.data
+                // Seleccionar Estudiante Primaria (ID 2) por defecto si existe
+                selectedRole = roles.find { it.id == 2 } ?: roles.firstOrNull()
+            } else {
+                val errorBody = response.errorBody()?.string() ?: "Error desconocido"
+                Toast.makeText(context, "Error API (${response.code()}): $errorBody", Toast.LENGTH_LONG).show()
+                Log.e("ROLES_ERROR", "Error API: $errorBody")
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "Error de Red: ${e.message}", Toast.LENGTH_LONG).show()
+            Log.e("ROLES_ERROR", "Error al cargar roles", e)
+        } finally {
+            isLoadingRoles = false
+        }
+    }
 
     val calendar = Calendar.getInstance()
     val datePickerDialog = DatePickerDialog(
@@ -81,23 +111,47 @@ fun SignUpScreen(
             Text(text = "Registro", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4A6572))
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Selector de Rol
-            Text(text = "¿Cómo te registras?", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4A6572))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(vertical = 8.dp)
-            ) {
-                RadioButton(
-                    selected = rolId == 2,
-                    onClick = { rolId = 2 }
-                )
-                Text("Estudiante", modifier = Modifier.clickable { rolId = 2 })
-                Spacer(modifier = Modifier.width(16.dp))
-                RadioButton(
-                    selected = rolId == 3,
-                    onClick = { rolId = 3 }
-                )
-                Text("Chofer", modifier = Modifier.clickable { rolId = 3 })
+            // Selector de Rol (SelectBox / Dropdown)
+            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                Text(text = "¿Cómo te registras?", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4A6572))
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                if (isLoadingRoles) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                } else {
+                    ExposedDropdownMenuBox(
+                        expanded = expanded,
+                        onExpandedChange = { expanded = !expanded },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        TextField(
+                            value = selectedRole?.nombre ?: "Seleccione un rol",
+                            onValueChange = {},
+                            readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color(0xFFE8E4ED),
+                                unfocusedContainerColor = Color(0xFFE8E4ED)
+                            ),
+                            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth()
+                        )
+
+                        ExposedDropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false }
+                        ) {
+                            roles.forEach { role ->
+                                DropdownMenuItem(
+                                    text = { Text(text = role.nombre) },
+                                    onClick = {
+                                        selectedRole = role
+                                        expanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             SignUpField(label = "Nombres", value = nombres, onValueChange = { nombres = it })
@@ -130,7 +184,7 @@ fun SignUpScreen(
 
             Button(
                 onClick = { 
-                    if (contrasena == confirmContrasena && contrasena.length >= 6 && nombres.isNotBlank()) {
+                    if (contrasena == confirmContrasena && contrasena.length >= 6 && nombres.isNotBlank() && selectedRole != null) {
                         onSignUpRequest(
                             RegisterRequest(
                                 nombres = nombres,
@@ -139,7 +193,7 @@ fun SignUpScreen(
                                 correoElectronico = correoElectronico,
                                 fechaNacimiento = fechaNacimiento,
                                 contrasena = contrasena,
-                                rolId = rolId
+                                rolId = selectedRole!!.id
                             )
                         )
                     }
